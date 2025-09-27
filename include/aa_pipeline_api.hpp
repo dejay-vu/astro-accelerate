@@ -1152,6 +1152,16 @@ namespace astroaccelerate {
 		}
 		// ----------------------- PSR -------------------------
 
+#if AA_WITH_PULSCAN
+		const std::vector<pulscan_host_candidate> &get_pulscan_candidates() const {
+			static const std::vector<pulscan_host_candidate> empty;
+			if (!m_runner) {
+				return empty;
+			}
+			return m_runner->get_pulscan_candidates();
+		}
+#endif
+
 		int get_current_range(){
 			return m_runner->get_current_range();
 		}
@@ -1199,4 +1209,3 @@ namespace astroaccelerate {
 } // namespace astroaccelerate
 
 #endif // ASTRO_ACCELERATE_AA_PIPELINE_API_HPP
-
