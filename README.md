@@ -30,6 +30,18 @@ Astro-Accelerate is used for real-time astronomy data processing. Its features i
 * Acceleration Searching
 * Zero DM
 * RFI Mitigation
+* Pulscan accelerated search (experimental, FFT-domain candidate generation)
+
+### Enabling Pulscan (experimental)
+
+Pulscan integration is disabled by default. Enable it at build time using one of the following options:
+
+- **CMake**: `-DAA_ENABLE_PULSCAN=ON`
+- **Meson**: `-Dwith_pulscan=true`
+- **Makefile**: `make PULSCAN=1` or set `PULSCAN=1` in the environment
+
+When enabled, the pipeline emits additional Pulscan candidates retrievable via `get_pulscan_candidates()`. The interface is experimental and may change.
+
 
 Python Interface
 ===

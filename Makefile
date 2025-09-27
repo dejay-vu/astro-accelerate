@@ -44,6 +44,10 @@ else
         --ptxas-options=-v -lcuda -lcudart  -lcurand -lcufft -lcudadevrt -Xptxas -dlcm=cg $(GENCODE_FLAGS) -Xcompiler -fopenmp
 endif
 
+ifeq ($(PULSCAN),1)
+        NVCCFLAGS += -DAA_WITH_PULSCAN=1
+endif
+
 LIBJOBS := libastroaccelerate.a
 
 all:	MAKE_OBJ_FOLDER ${LIBJOBS} ${COMPILEJOBS} ${EXAMPLES_FILES}

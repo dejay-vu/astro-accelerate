@@ -5,8 +5,12 @@
 #include <vector>
 #include <fstream>
 
+#include "aa_params.hpp"
 #include "aa_log.hpp"
 #include "aa_device_analysis.hpp"
+#if AA_WITH_PULSCAN
+#include "aa_device_pulscan.hpp"
+#endif
 
 
 namespace astroaccelerate {
@@ -133,6 +137,14 @@ namespace astroaccelerate {
 		}
 		// ----------------------- PSR -------------------------
 
+#if AA_WITH_PULSCAN
+		virtual const std::vector<pulscan_host_candidate> &get_pulscan_candidates() const {
+			static const std::vector<pulscan_host_candidate> empty;
+			LOG(log_level::error, "The selected operation is not supported on this pipeline (Pulscan candidates).");
+			return empty;
+		}
+#endif
+
 		virtual int get_current_range(){
 			LOG(log_level::error, "The selected operation is not supported on this pipeline (current_range).");
 			return 0;
@@ -231,4 +243,3 @@ namespace astroaccelerate {
 
 } // namespace astroaccelerate
 #endif // ASTRO_ACCELERATE_AA_PIPELINE_RUNNER_HPP
-
