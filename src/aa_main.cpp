@@ -225,6 +225,11 @@ int main(int argc, char *argv[]) {
 			pipeline_manager.Write_to_disk_PSR_candidates("global_periods.dat");
 			pipeline_manager.Write_to_disk_PSR_interbin_candidates("global_interbin.dat");
 		}
+
+#if AA_WITH_PULSCAN
+		LOG(log_level::notice, "Writing Pulscan candidates to disk.");
+		pipeline_manager.Write_to_disk_Pulscan_candidates("global_pulscan_candidates.csv");
+#endif
 	}
 	else {
 		LOG(log_level::error, "The pipeline could not start or had errors.");

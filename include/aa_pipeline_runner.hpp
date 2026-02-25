@@ -143,6 +143,10 @@ namespace astroaccelerate {
 			LOG(log_level::error, "The selected operation is not supported on this pipeline (Pulscan candidates).");
 			return empty;
 		}
+
+		virtual void Write_to_disk_Pulscan_candidates(const char *) {
+			LOG(log_level::error, "The selected operation is not supported on this pipeline (Pulscan candidates output).");
+		}
 #endif
 
 		virtual int get_current_range(){

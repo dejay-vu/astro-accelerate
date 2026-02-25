@@ -1160,6 +1160,13 @@ namespace astroaccelerate {
 			}
 			return m_runner->get_pulscan_candidates();
 		}
+
+		void Write_to_disk_Pulscan_candidates(const char *filename) {
+			if (!m_runner) {
+				return;
+			}
+			m_runner->Write_to_disk_Pulscan_candidates(filename);
+		}
 #endif
 
 		int get_current_range(){
