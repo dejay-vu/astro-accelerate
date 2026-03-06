@@ -2430,16 +2430,18 @@ public:
       return;
     }
 
-    fprintf(fp, "sigma,logp,r,z,power,numharm\n");
+    fprintf(fp, "sigma,logp,r,z,power,numharm,frequency_hz,dm\n");
     for(const auto& candidate : m_pulscan_candidates) {
       fprintf(fp,
-              "%lf, %f,%d,%d,%f,%d\n",
-              static_cast<double>(candidate.sigma),
-              static_cast<double>(candidate.logp),
-              candidate.r,
-              candidate.z,
-              static_cast<double>(candidate.power),
-              candidate.numharm);
+              "%lf,%f,%d,%d,%f,%d,%lf,%lf\n",
+              static_cast<double>(candidate.sigma),        // sigma
+              static_cast<double>(candidate.logp),         // logp
+              candidate.r,                                 // r
+              candidate.z,                                 // z
+              static_cast<double>(candidate.power),        // power
+              candidate.numharm,                           // numharm
+              static_cast<double>(candidate.frequency_hz), // (Hz)
+              static_cast<double>(candidate.dm));          // (pc/cm³)
     }
 
     fclose(fp);
