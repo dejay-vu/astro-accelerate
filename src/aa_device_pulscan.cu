@@ -1,6 +1,6 @@
 #include "aa_params.hpp"
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -218,6 +218,7 @@ namespace astroaccelerate {
                                             int z, int output_counter, int local_thread_index, int global_thread_index, int numharm) {
     search_array[local_thread_index].power = sum_array[local_thread_index];
     search_array[local_thread_index].index = global_thread_index;
+    __syncthreads();
     for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
       if (local_thread_index < stride) {
         if (search_array[local_thread_index].power < search_array[local_thread_index + stride].power) {
@@ -244,13 +245,19 @@ namespace astroaccelerate {
 
     long global_thread_index = static_cast<long>(blockDim.x) * blockIdx.x + threadIdx.x;
     int local_thread_index = threadIdx.x;
+    bool valid_start = global_thread_index < num_floats;
+    bool valid_offset = (global_thread_index + 256) < num_floats;
 
-    lookup_array[local_thread_index] = magnitude_squared_array[global_thread_index];
-    lookup_array[local_thread_index + 256] = magnitude_squared_array[global_thread_index + 256];
+    lookup_array[local_thread_index] =
+      (global_thread_index < num_floats)
+        ? magnitude_squared_array[global_thread_index]
+        : 0.0f;
+    lookup_array[local_thread_index + 256] =
+      valid_offset ? magnitude_squared_array[global_thread_index + 256] : 0.0f;
 
     __syncthreads();
 
-    sum_array[local_thread_index] = 0.0f;
+    sum_array[local_thread_index] = valid_start ? 0.0f : -1.0e30f;
     __syncthreads();
 
     sum_array[local_thread_index] += lookup_array[local_thread_index + 0];
@@ -362,4 +369,4 @@ namespace astroaccelerate {
 
 } // namespace astroaccelerate
 
-#endif // AA_WITH_PULSCAN
+#endif // AA_ENABLE_PULSCAN

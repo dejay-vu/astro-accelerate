@@ -11,7 +11,9 @@ comp_flags = ['-g', '-std=c++14']
 add_project_arguments(comp_flags, language : ['c', 'cpp', 'cuda'])
 
 if get_option('with_pulscan')
-  add_project_arguments(['-DAA_WITH_PULSCAN=1'], language : ['c', 'cpp', 'cuda'])
+  add_project_arguments(['-DAA_ENABLE_PULSCAN=1'], language : ['c', 'cpp', 'cuda'])
+else
+  add_project_arguments(['-DAA_ENABLE_PULSCAN=0'], language : ['c', 'cpp', 'cuda'])
 endif
 
 

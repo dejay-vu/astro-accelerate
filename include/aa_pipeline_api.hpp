@@ -1152,7 +1152,7 @@ namespace astroaccelerate {
 		}
 		// ----------------------- PSR -------------------------
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
 		const std::vector<pulscan_host_candidate> &get_pulscan_candidates() const {
 			static const std::vector<pulscan_host_candidate> empty;
 			if (!m_runner) {
@@ -1166,6 +1166,13 @@ namespace astroaccelerate {
 				return;
 			}
 			m_runner->Write_to_disk_Pulscan_candidates(filename);
+		}
+
+		void Write_to_disk_Pulscan_gpucand(const char *directory) {
+			if (!m_runner) {
+				return;
+			}
+			m_runner->Write_to_disk_Pulscan_gpucand(directory);
 		}
 #endif
 

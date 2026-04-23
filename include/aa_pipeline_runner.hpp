@@ -8,7 +8,7 @@
 #include "aa_params.hpp"
 #include "aa_log.hpp"
 #include "aa_device_analysis.hpp"
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
 #include "aa_device_pulscan.hpp"
 #endif
 
@@ -137,7 +137,7 @@ namespace astroaccelerate {
 		}
 		// ----------------------- PSR -------------------------
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
 		virtual const std::vector<pulscan_host_candidate> &get_pulscan_candidates() const {
 			static const std::vector<pulscan_host_candidate> empty;
 			LOG(log_level::error, "The selected operation is not supported on this pipeline (Pulscan candidates).");
@@ -146,6 +146,10 @@ namespace astroaccelerate {
 
 		virtual void Write_to_disk_Pulscan_candidates(const char *) {
 			LOG(log_level::error, "The selected operation is not supported on this pipeline (Pulscan candidates output).");
+		}
+
+		virtual void Write_to_disk_Pulscan_gpucand(const char *) {
+			LOG(log_level::error, "The selected operation is not supported on this pipeline (Pulscan gpucand output).");
 		}
 #endif
 

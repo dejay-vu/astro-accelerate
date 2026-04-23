@@ -29,7 +29,66 @@
 
 #include "aa_welcome_notice.hpp"
 
+#include <cerrno>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 using namespace astroaccelerate;
+
+namespace {
+
+bool ensure_directory_exists(const std::string& path) {
+	if(path.empty() || path == ".") {
+		return true;
+	}
+
+	std::string current;
+	size_t position = 0;
+	if(path[0] == '/') {
+		current = "/";
+		position = 1;
+	}
+
+	while(position <= path.size()) {
+		const size_t next_separator = path.find('/', position);
+		const std::string part = path.substr(position, next_separator - position);
+		if(!part.empty() && part != ".") {
+			if(!current.empty() && current.back() != '/') {
+				current += "/";
+			}
+			current += part;
+
+			struct stat path_stat;
+			if(stat(current.c_str(), &path_stat) != 0) {
+				if(mkdir(current.c_str(), 0755) != 0 && errno != EEXIST) {
+					return false;
+				}
+			}
+			else if(!S_ISDIR(path_stat.st_mode)) {
+				return false;
+			}
+		}
+
+		if(next_separator == std::string::npos) {
+			break;
+		}
+		position = next_separator + 1;
+	}
+
+	return true;
+}
+
+std::string join_path(const std::string& directory, const std::string& filename) {
+	if(directory.empty() || directory == ".") {
+		return filename;
+	}
+	if(directory.back() == '/') {
+		return directory + filename;
+	}
+	return directory + "/" + filename;
+}
+
+} // namespace
 
 int main(int argc, char *argv[]) {
 	welcome_notice();
@@ -224,12 +283,23 @@ int main(int argc, char *argv[]) {
 			LOG(log_level::notice, "Writing periodicity candidates to disk.");
 			pipeline_manager.Write_to_disk_PSR_candidates("global_periods.dat");
 			pipeline_manager.Write_to_disk_PSR_interbin_candidates("global_interbin.dat");
-		}
 
-#if AA_WITH_PULSCAN
-		LOG(log_level::notice, "Writing Pulscan candidates to disk.");
-		pipeline_manager.Write_to_disk_Pulscan_candidates("global_pulscan_candidates.csv");
+#if AA_ENABLE_PULSCAN
+			LOG(log_level::notice, "Writing Pulscan candidates to disk.");
+			const std::string pulscan_output_dir =
+				user_flags.pulscan_output_dir.empty() ? std::string(".") : user_flags.pulscan_output_dir;
+			if(!ensure_directory_exists(pulscan_output_dir)) {
+				LOG(log_level::error,
+					"Pulscan: failed to create output directory " + pulscan_output_dir);
+			}
+			else {
+				const std::string pulscan_csv_path =
+					join_path(pulscan_output_dir, "global_pulscan_candidates.csv");
+				pipeline_manager.Write_to_disk_Pulscan_candidates(pulscan_csv_path.c_str());
+				pipeline_manager.Write_to_disk_Pulscan_gpucand(pulscan_output_dir.c_str());
+			}
 #endif
+		}
 	}
 	else {
 		LOG(log_level::error, "The pipeline could not start or had errors.");

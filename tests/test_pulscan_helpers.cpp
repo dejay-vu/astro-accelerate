@@ -1,9 +1,6 @@
 #include <cmath>
 #include <iostream>
 
-#ifndef AA_WITH_PULSCAN
-#define AA_WITH_PULSCAN 1
-#endif
 #include "aa_device_pulscan.hpp"
 
 using namespace astroaccelerate;

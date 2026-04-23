@@ -3,7 +3,7 @@
 
 #include "aa_params.hpp"
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
 
 #include <cuda_runtime.h>
 
@@ -56,6 +56,6 @@ namespace astroaccelerate {
 
 } // namespace astroaccelerate
 
-#endif // AA_WITH_PULSCAN
+#endif // AA_ENABLE_PULSCAN
 
 #endif // ASTRO_ACCELERATE_AA_DEVICE_PULSCAN_HPP

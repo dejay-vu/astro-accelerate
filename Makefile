@@ -45,7 +45,9 @@ else
 endif
 
 ifeq ($(PULSCAN),1)
-        NVCCFLAGS += -DAA_WITH_PULSCAN=1
+	NVCCFLAGS += -DAA_ENABLE_PULSCAN=1
+else
+	NVCCFLAGS += -DAA_ENABLE_PULSCAN=0
 endif
 
 LIBJOBS := libastroaccelerate.a

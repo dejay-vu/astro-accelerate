@@ -34,9 +34,12 @@
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <iomanip>
 #include <limits>
+#include <map>
 #include <omp.h>
 #include <stdio.h>
+#include <sstream>
 #include <string.h>
 #include <string>
 #include <vector>
@@ -46,8 +49,8 @@
 #include "aa_filterbank_metadata.hpp"
 #include "aa_zero_dm.hpp"
 #include "aa_zero_dm_outliers.hpp"
-#if AA_WITH_PULSCAN
-#include "aa_device_pulscan.hpp"
+#if AA_ENABLE_PULSCAN
+#include "aa_pulscan_runner.hpp"
 #endif
 #include "aa_corner_turn.hpp"
 #include "aa_dedisperse.hpp"
@@ -138,399 +141,8 @@ private:
   float*                    c_h_PSR_power_candidates;
   float*                    c_h_PSR_interbin_candidates;
 
-#if AA_WITH_PULSCAN
-  struct pulscan_workspace {
-    float*             d_time_series;
-    size_t             d_time_series_capacity;
-    float2*            d_fft_output;
-    size_t             d_fft_capacity;
-    float*             d_real;
-    size_t             d_real_capacity;
-    float*             d_imag;
-    size_t             d_imag_capacity;
-    float*             d_power;
-    size_t             d_power_capacity;
-    float*             d_decimated2;
-    size_t             d_decimated2_capacity;
-    float*             d_decimated3;
-    size_t             d_decimated3_capacity;
-    float*             d_decimated4;
-    size_t             d_decimated4_capacity;
-    pulscan_candidate* d_candidates_h1;
-    size_t             d_candidates_h1_capacity;
-    pulscan_candidate* d_candidates_h2;
-    size_t             d_candidates_h2_capacity;
-    pulscan_candidate* d_candidates_h3;
-    size_t             d_candidates_h3_capacity;
-    pulscan_candidate* d_candidates_h4;
-    size_t             d_candidates_h4_capacity;
-    pulscan_candidate* h_candidate_buffer;
-    size_t             h_candidate_capacity;
-    float*             h_fft_real;
-    float*             h_fft_imag;
-    size_t             h_fft_capacity;
-    cufftHandle        fft_plan;
-    size_t             fft_length;
-    int                fft_batch;
-    bool               fft_plan_valid;
-    float*             h_pinned_batch;
-    size_t             h_pinned_capacity;
-
-    pulscan_workspace() :
-        d_time_series(nullptr),
-        d_time_series_capacity(0),
-        d_fft_output(nullptr),
-        d_fft_capacity(0),
-        d_real(nullptr),
-        d_real_capacity(0),
-        d_imag(nullptr),
-        d_imag_capacity(0),
-        d_power(nullptr),
-        d_power_capacity(0),
-        d_decimated2(nullptr),
-        d_decimated2_capacity(0),
-        d_decimated3(nullptr),
-        d_decimated3_capacity(0),
-        d_decimated4(nullptr),
-        d_decimated4_capacity(0),
-        d_candidates_h1(nullptr),
-        d_candidates_h1_capacity(0),
-        d_candidates_h2(nullptr),
-        d_candidates_h2_capacity(0),
-        d_candidates_h3(nullptr),
-        d_candidates_h3_capacity(0),
-        d_candidates_h4(nullptr),
-        d_candidates_h4_capacity(0),
-        h_candidate_buffer(nullptr),
-        h_candidate_capacity(0),
-        h_fft_real(nullptr),
-        h_fft_imag(nullptr),
-        h_fft_capacity(0),
-        fft_plan(0),
-        fft_length(0),
-        fft_batch(0),
-        fft_plan_valid(false),
-        h_pinned_batch(nullptr),
-        h_pinned_capacity(0) {}
-
-    ~pulscan_workspace() { release(); }
-
-    bool ensure_device(size_t elements) {
-      if(elements <= d_time_series_capacity) {
-        return true;
-      }
-      if(d_time_series) {
-        cudaFree(d_time_series);
-        d_time_series          = nullptr;
-        d_time_series_capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_time_series),
-                                   elements * sizeof(float));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      d_time_series_capacity = elements;
-      return true;
-    }
-
-    bool ensure_fft_output(size_t elements) {
-      if(elements <= d_fft_capacity) {
-        return true;
-      }
-      if(d_fft_output) {
-        cudaFree(d_fft_output);
-        d_fft_output   = nullptr;
-        d_fft_capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_fft_output),
-                                   elements * sizeof(float2));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      d_fft_capacity = elements;
-      return true;
-    }
-
-    bool ensure_fft_plan(int length, int batch) {
-      if(fft_plan_valid && static_cast<size_t>(length) == fft_length &&
-         batch == fft_batch) {
-        return true;
-      }
-      if(fft_plan_valid) {
-        cufftDestroy(fft_plan);
-        fft_plan_valid = false;
-      }
-      cufftResult plan_status =
-          cufftPlan1d(&fft_plan, length, CUFFT_R2C, batch);
-      if(plan_status != CUFFT_SUCCESS) {
-        fft_plan   = 0;
-        fft_length = 0;
-        fft_batch  = 0;
-        return false;
-      }
-      fft_length     = static_cast<size_t>(length);
-      fft_batch      = batch;
-      fft_plan_valid = true;
-      return true;
-    }
-
-    bool ensure_real(size_t elements) {
-      if(elements <= d_real_capacity) {
-        return true;
-      }
-      if(d_real) {
-        cudaFree(d_real);
-        d_real          = nullptr;
-        d_real_capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_real),
-                                   elements * sizeof(float));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      d_real_capacity = elements;
-      return true;
-    }
-
-    bool ensure_imag(size_t elements) {
-      if(elements <= d_imag_capacity) {
-        return true;
-      }
-      if(d_imag) {
-        cudaFree(d_imag);
-        d_imag          = nullptr;
-        d_imag_capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_imag),
-                                   elements * sizeof(float));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      d_imag_capacity = elements;
-      return true;
-    }
-
-    bool ensure_power(size_t elements) {
-      if(elements <= d_power_capacity) {
-        return true;
-      }
-      if(d_power) {
-        cudaFree(d_power);
-        d_power          = nullptr;
-        d_power_capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_power),
-                                   elements * sizeof(float));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      d_power_capacity = elements;
-      return true;
-    }
-
-    bool
-    ensure_decimated_buffer(float*& buffer, size_t& capacity, size_t elements) {
-      if(elements <= capacity) {
-        return true;
-      }
-      if(buffer) {
-        cudaFree(buffer);
-        buffer   = nullptr;
-        capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&buffer),
-                                   elements * sizeof(float));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      capacity = elements;
-      return true;
-    }
-
-    bool ensure_candidates(size_t elements) {
-      if(elements <= d_candidates_h1_capacity) {
-        return true;
-      }
-      if(d_candidates_h1) {
-        cudaFree(d_candidates_h1);
-        d_candidates_h1          = nullptr;
-        d_candidates_h1_capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_candidates_h1),
-                                   elements * sizeof(pulscan_candidate));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      d_candidates_h1_capacity = elements;
-      return true;
-    }
-
-    bool ensure_candidates_harmonic(pulscan_candidate*& buffer,
-                                    size_t&             capacity,
-                                    size_t              elements) {
-      if(elements <= capacity) {
-        return true;
-      }
-      if(buffer) {
-        cudaFree(buffer);
-        buffer   = nullptr;
-        capacity = 0;
-      }
-      cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&buffer),
-                                   elements * sizeof(pulscan_candidate));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      capacity = elements;
-      return true;
-    }
-
-    bool ensure_host(size_t elements) {
-      if(elements <= h_pinned_capacity) {
-        return true;
-      }
-      if(h_pinned_batch) {
-        cudaFreeHost(h_pinned_batch);
-        h_pinned_batch    = nullptr;
-        h_pinned_capacity = 0;
-      }
-      cudaError_t err = cudaMallocHost(
-          reinterpret_cast<void**>(&h_pinned_batch), elements * sizeof(float));
-      if(err != cudaSuccess) {
-        return false;
-      }
-      h_pinned_capacity = elements;
-      return true;
-    }
-
-    bool ensure_host_candidates(size_t elements) {
-      if(elements <= h_candidate_capacity) {
-        return true;
-      }
-      if(h_candidate_buffer) {
-        free(h_candidate_buffer);
-        h_candidate_buffer   = nullptr;
-        h_candidate_capacity = 0;
-      }
-      h_candidate_buffer = static_cast<pulscan_candidate*>(
-          malloc(elements * sizeof(pulscan_candidate)));
-      if(!h_candidate_buffer) {
-        return false;
-      }
-      h_candidate_capacity = elements;
-      return true;
-    }
-
-    bool ensure_host_fft(size_t bytes) {
-      size_t elements = bytes / sizeof(float);
-      if(elements <= h_fft_capacity) {
-        return true;
-      }
-      free(h_fft_real);
-      free(h_fft_imag);
-      h_fft_real = static_cast<float*>(malloc(elements * sizeof(float)));
-      h_fft_imag = static_cast<float*>(malloc(elements * sizeof(float)));
-      if(!h_fft_real || !h_fft_imag) {
-        free(h_fft_real);
-        free(h_fft_imag);
-        h_fft_real     = nullptr;
-        h_fft_imag     = nullptr;
-        h_fft_capacity = 0;
-        return false;
-      }
-      h_fft_capacity = elements;
-      return true;
-    }
-
-    void release() {
-      if(d_time_series) {
-        cudaFree(d_time_series);
-        d_time_series = nullptr;
-      }
-      d_time_series_capacity = 0;
-      if(d_fft_output) {
-        cudaFree(d_fft_output);
-        d_fft_output = nullptr;
-      }
-      d_fft_capacity = 0;
-      if(d_real) {
-        cudaFree(d_real);
-        d_real = nullptr;
-      }
-      d_real_capacity = 0;
-      if(d_imag) {
-        cudaFree(d_imag);
-        d_imag = nullptr;
-      }
-      d_imag_capacity = 0;
-      if(d_power) {
-        cudaFree(d_power);
-        d_power = nullptr;
-      }
-      d_power_capacity = 0;
-      if(d_decimated2) {
-        cudaFree(d_decimated2);
-        d_decimated2 = nullptr;
-      }
-      d_decimated2_capacity = 0;
-      if(d_decimated3) {
-        cudaFree(d_decimated3);
-        d_decimated3 = nullptr;
-      }
-      d_decimated3_capacity = 0;
-      if(d_decimated4) {
-        cudaFree(d_decimated4);
-        d_decimated4 = nullptr;
-      }
-      d_decimated4_capacity = 0;
-      if(d_candidates_h1) {
-        cudaFree(d_candidates_h1);
-        d_candidates_h1 = nullptr;
-      }
-      d_candidates_h1_capacity = 0;
-      if(d_candidates_h2) {
-        cudaFree(d_candidates_h2);
-        d_candidates_h2 = nullptr;
-      }
-      d_candidates_h2_capacity = 0;
-      if(d_candidates_h3) {
-        cudaFree(d_candidates_h3);
-        d_candidates_h3 = nullptr;
-      }
-      d_candidates_h3_capacity = 0;
-      if(d_candidates_h4) {
-        cudaFree(d_candidates_h4);
-        d_candidates_h4 = nullptr;
-      }
-      d_candidates_h4_capacity = 0;
-      if(fft_plan_valid) {
-        cufftDestroy(fft_plan);
-        fft_plan_valid = false;
-      }
-      fft_length = 0;
-      fft_batch  = 0;
-      if(h_pinned_batch) {
-        cudaFreeHost(h_pinned_batch);
-        h_pinned_batch = nullptr;
-      }
-      h_pinned_capacity = 0;
-      if(h_candidate_buffer) {
-        free(h_candidate_buffer);
-        h_candidate_buffer = nullptr;
-      }
-      h_candidate_capacity = 0;
-      if(h_fft_real) {
-        free(h_fft_real);
-        h_fft_real = nullptr;
-      }
-      if(h_fft_imag) {
-        free(h_fft_imag);
-        h_fft_imag = nullptr;
-      }
-      h_fft_capacity = 0;
-    }
-  } m_pulscan_workspace;
-  std::vector<pulscan_host_candidate> m_pulscan_candidates;
+#if AA_ENABLE_PULSCAN
+  aa_pulscan_runner m_pulscan_runner;
 #endif
 
   // fdas acceleration search settings
@@ -735,13 +347,12 @@ private:
     int    time_samps = t_processed[0][0] + maxshift;
     size_t gpu_inputsize =
         (size_t)time_samps * (size_t)nchans * sizeof(unsigned short);
-    size_t gpu_outputsize = 0;
-    if(nchans < max_ndms) {
-      gpu_outputsize = (size_t)time_samps * (size_t)max_ndms * sizeof(float);
-    }
-    else {
-      gpu_outputsize = (size_t)time_samps * (size_t)nchans * sizeof(float);
-    }
+    const size_t gpu_cornerturn_size =
+      (size_t)time_samps * (size_t)nchans * sizeof(unsigned short);
+    const size_t gpu_dedispersion_size =
+      (size_t)time_samps * (size_t)max_ndms * sizeof(float);
+    const size_t gpu_outputsize =
+      std::max(gpu_cornerturn_size, gpu_dedispersion_size);
 
     //---------------------------------> DEBUG info
     printf("\n\nMemory allocation for the DDTR\n");
@@ -946,7 +557,11 @@ private:
     max_ndms          = m_ddtr_strategy.max_ndms();
     nchans            = m_ddtr_strategy.metadata().nchans();
     nbits             = m_ddtr_strategy.metadata().nbits();
-    failsafe          = 0;
+    failsafe          =
+      (m_pipeline_options.find(aa_pipeline::component_option::failsafe) !=
+       m_pipeline_options.end())
+        ? 1
+        : 0;
     inc               = 0;
     tsamp_original    = m_ddtr_strategy.metadata().tsamp();
     maxshift_original = maxshift;
@@ -1091,8 +706,8 @@ private:
     else
       do_jerk = false;
 
-#if AA_WITH_PULSCAN
-    do_pulscan_search = true;
+#if AA_ENABLE_PULSCAN
+  do_pulscan_search = do_periodicity_search;
 #else
     do_pulscan_search = false;
 #endif
@@ -1134,6 +749,8 @@ private:
         aa_pipeline::component_option::input_DDTR_normalization;
     const aa_pipeline::component_option opt_output_DDTR_normalization =
         aa_pipeline::component_option::output_DDTR_normalization;
+    const aa_pipeline::component_option opt_failsafe =
+      aa_pipeline::component_option::failsafe;
     const aa_pipeline::component_option opt_old_rfi =
         aa_pipeline::component_option::old_rfi;
     // const aa_pipeline::component_option opt_dered                  =
@@ -1185,7 +802,7 @@ private:
       }
       //--------------------------------------------------------------------------------<
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
       //------------------> Pulscan accelerated search
       if(!pulscan_did_run && do_pulscan_search) {
         bool pulscan_return_value = pulscan();
@@ -1391,6 +1008,10 @@ private:
 
       int kernel_error;
       m_local_timer.Start();
+        const int dedispersion_failsafe =
+          (m_pipeline_options.find(opt_failsafe) != m_pipeline_options.end())
+            ? 1
+            : failsafe;
       kernel_error = dedisperse(dm_range,
                                 t_processed[dm_range][current_time_chunk],
                                 inBin.data(),
@@ -1404,7 +1025,7 @@ private:
                                 dm_step.data(),
                                 ndms,
                                 nbits,
-                                failsafe);
+                                dedispersion_failsafe);
       m_local_timer.Stop();
       time_log.adding("DDTR", "Dedispersion", m_local_timer.Elapsed());
 
@@ -1525,7 +1146,7 @@ private:
       return false;
     aa_gpu_timer timer;
     timer.Start();
-    m_pulscan_candidates.clear();
+    m_pulscan_runner.clear();
 
     GPU_periodicity(m_periodicity_strategy,
                     m_output_buffer,
@@ -1553,596 +1174,20 @@ private:
     return true;
   }
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
   bool pulscan() {
     if(pulscan_did_run || !do_pulscan_search) {
       return false;
     }
-
-    aa_gpu_timer timer;
-    timer.Start();
-
-    struct pulscan_batch_plan {
-      int    range_index;
-      int    batch_index;
-      int    dm_offset;
-      int    dm_count;
-      size_t samples_per_series;
-      double dm_low;
-      double dm_step;
-      double sampling_time;
-      int    in_bin;
-    };
-
-    std::vector<pulscan_batch_plan> batch_plan;
-    batch_plan.reserve(
-        static_cast<size_t>(std::max(0, m_periodicity_strategy.nRanges())));
-
-    size_t total_dm_series        = 0;
-    size_t min_samples_per_series = std::numeric_limits<size_t>::max();
-    size_t max_samples_per_series = 0;
-
-    const int n_periodicity_ranges = m_periodicity_strategy.nRanges();
-    for(int r = 0; r < n_periodicity_ranges; ++r) {
-      aa_periodicity_range current_range =
-          m_periodicity_strategy.get_periodicity_range(static_cast<size_t>(r));
-      const int in_bin_factor  = std::max(1, inBin[static_cast<size_t>(r)]);
-      size_t    samples_per_dm = static_cast<size_t>(inc / in_bin_factor);
-      if(samples_per_dm == 0) {
-        continue;
-      }
-
-      const size_t batch_count = current_range.batches.size();
-      for(size_t b = 0; b < batch_count; ++b) {
-        const aa_periodicity_batch& batch    = current_range.batches[b];
-        const int                   dm_count = batch.nDMs_per_batch;
-        if(dm_count <= 0) {
-          continue;
-        }
-
-        size_t samples_for_series = batch.nTimesamples_to_copy;
-        if(samples_for_series == 0 || samples_for_series > samples_per_dm) {
-          samples_for_series = samples_per_dm;
-        }
-
-        pulscan_batch_plan plan_entry{};
-        plan_entry.range_index        = r;
-        plan_entry.batch_index        = static_cast<int>(b);
-        plan_entry.dm_offset          = batch.DM_shift;
-        plan_entry.dm_count           = dm_count;
-        plan_entry.samples_per_series = samples_for_series;
-        plan_entry.dm_low             = current_range.range.dm_low();
-        plan_entry.dm_step            = current_range.range.dm_step();
-        plan_entry.sampling_time      = current_range.range.sampling_time();
-        plan_entry.in_bin             = in_bin_factor;
-        batch_plan.push_back(plan_entry);
-
-        total_dm_series += static_cast<size_t>(dm_count);
-        min_samples_per_series =
-            std::min(min_samples_per_series, samples_for_series);
-        max_samples_per_series =
-            std::max(max_samples_per_series, samples_for_series);
-      }
-    }
-
-    printf("Pulscan staging prepared %zu batches and %zu DM series.\n",
-           batch_plan.size(),
-           total_dm_series);
-    if(!batch_plan.empty()) {
-      printf(
-          "Pulscan series length range: [%zu, %zu] samples (bin-corrected).\n",
-          min_samples_per_series,
-          max_samples_per_series);
-    }
-    else {
-      printf("Pulscan staging skipped: no qualified DM series found.\n");
-    }
-
-    cudaError_t cuda_status = cudaSuccess;
-    for(const auto& plan_entry : batch_plan) {
-      if(pipeline_error != PIPELINE_ERROR_NO_ERROR) {
-        break;
-      }
-
-      const size_t dm_series =
-          static_cast<size_t>(std::max(0, plan_entry.dm_count));
-      const size_t samples_per_series = plan_entry.samples_per_series;
-      const size_t batch_elements     = dm_series * samples_per_series;
-      if(batch_elements == 0) {
-        continue;
-      }
-
-      if(!m_pulscan_workspace.ensure_host(batch_elements) ||
-         !m_pulscan_workspace.ensure_device(batch_elements)) {
-        LOG(log_level::error, "Pulscan workspace allocation failed.");
-        pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-        break;
-      }
-
-      float*       host_buffer = m_pulscan_workspace.h_pinned_batch;
-      const size_t host_stride = samples_per_series;
-      for(int dm_idx = 0; dm_idx < plan_entry.dm_count; ++dm_idx) {
-        float* series_ptr = m_output_buffer[plan_entry.range_index]
-                                           [plan_entry.dm_offset + dm_idx];
-        if(series_ptr == nullptr) {
-          continue;
-        }
-        std::copy_n(series_ptr,
-                    host_stride,
-                    host_buffer + static_cast<size_t>(dm_idx) * host_stride);
-      }
-
-      cuda_status = cudaMemcpy(m_pulscan_workspace.d_time_series,
-                               host_buffer,
-                               batch_elements * sizeof(float),
-                               cudaMemcpyHostToDevice);
-      if(cuda_status != cudaSuccess) {
-        LOG(log_level::error,
-            "Pulscan: failed to copy time series batch to device (" +
-                std::string(cudaGetErrorString(cuda_status)) + ")");
-        pipeline_error = PIPELINE_ERROR_COPY_TO_DEVICE;
-        break;
-      }
-
-      printf(
-          "Pulscan staged range %d batch %d: %d DM trials, %zu samples each.\n",
-          plan_entry.range_index,
-          plan_entry.batch_index,
-          plan_entry.dm_count,
-          host_stride);
-
-      const int fft_length = static_cast<int>(samples_per_series);
-      const int fft_batch  = static_cast<int>(dm_series);
-      if(fft_length <= 1 || fft_batch <= 0) {
-        continue;
-      }
-
-      if(!m_pulscan_workspace.ensure_fft_plan(fft_length, fft_batch)) {
-        LOG(log_level::error,
-            "Pulscan: failed to create cuFFT plan (length=" +
-                std::to_string(fft_length) +
-                ", batch=" + std::to_string(fft_batch) + ")");
-        pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-        break;
-      }
-
-      const size_t freq_bins    = static_cast<size_t>(fft_length / 2 + 1);
-      const size_t fft_elements = dm_series * freq_bins;
-      if(!m_pulscan_workspace.ensure_fft_output(fft_elements)) {
-        LOG(log_level::error,
-            "Pulscan: failed to allocate FFT output buffer for " +
-                std::to_string(fft_elements) + " complex samples.");
-        pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-        break;
-      }
-
-      cufftResult fft_status = cufftExecR2C(
-          m_pulscan_workspace.fft_plan,
-          reinterpret_cast<cufftReal*>(m_pulscan_workspace.d_time_series),
-          reinterpret_cast<cufftComplex*>(m_pulscan_workspace.d_fft_output));
-      if(fft_status != CUFFT_SUCCESS) {
-        LOG(log_level::error,
-            "Pulscan: cuFFT execution failed (status=" +
-                std::to_string(fft_status) + ")");
-        pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-        break;
-      }
-
-      printf("Pulscan FFT completed for range %d batch %d (%d series, %zu "
-             "frequency bins).\n",
-             plan_entry.range_index,
-             plan_entry.batch_index,
-             plan_entry.dm_count,
-             freq_bins);
-
-      // Ensure working buffers for magnitude analysis
-      if(!m_pulscan_workspace.ensure_real(freq_bins) ||
-         !m_pulscan_workspace.ensure_imag(freq_bins) ||
-         !m_pulscan_workspace.ensure_power(freq_bins)) {
-        LOG(log_level::error,
-            "Pulscan: failed to allocate magnitude workspace of size " +
-                std::to_string(freq_bins));
-        pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-        break;
-      }
-
-      static bool pulscan_warned_normalisation = false;
-      const float logpThreshold                = -10.0f;
-      const int   boxcarThreadCount            = 256;
-      const int   numCandidatesPerBlock        = []() {
-        int zmax     = 256;
-        int perBlock = 1;
-        int val      = 1;
-        while(val <= zmax) {
-          val *= 2;
-          perBlock += 1;
-        }
-        return perBlock;
-      }();
-
-      for(int dm_idx = 0; dm_idx < plan_entry.dm_count; ++dm_idx) {
-        cudaStream_t stream = nullptr;
-        float2*      dm_fft = m_pulscan_workspace.d_fft_output +
-                         static_cast<size_t>(dm_idx) * freq_bins;
-        const dim3 fftBlock(boxcarThreadCount);
-        const dim3 fftGrid(
-            (static_cast<int>(freq_bins) + boxcarThreadCount - 1) /
-            boxcarThreadCount);
-
-        call_kernel_pulscan_separate_components(fftGrid,
-                                                fftBlock,
-                                                stream,
-                                                dm_fft,
-                                                m_pulscan_workspace.d_real,
-                                                m_pulscan_workspace.d_imag,
-                                                static_cast<long>(freq_bins));
-
-        if(std::getenv("AA_PULSCAN_DUMP_FFT")) {
-          const size_t real_bytes =
-              static_cast<size_t>(freq_bins) * sizeof(float);
-          if(m_pulscan_workspace.ensure_host_fft(real_bytes)) {
-            cudaMemcpy(m_pulscan_workspace.h_fft_real,
-                       m_pulscan_workspace.d_real,
-                       real_bytes,
-                       cudaMemcpyDeviceToHost);
-            cudaMemcpy(m_pulscan_workspace.h_fft_imag,
-                       m_pulscan_workspace.d_imag,
-                       real_bytes,
-                       cudaMemcpyDeviceToHost);
-            char filename[256];
-            snprintf(filename,
-                     sizeof(filename),
-                     "pulscan_fft_dm%03d_part%d.bin",
-                     plan_entry.range_index,
-                     dm_idx);
-            FILE* fp_fft = fopen(filename, "wb");
-            if(fp_fft) {
-              for(size_t i = 0; i < freq_bins; ++i) {
-                fwrite(&m_pulscan_workspace.h_fft_real[i],
-                       sizeof(float),
-                       1,
-                       fp_fft);
-                fwrite(&m_pulscan_workspace.h_fft_imag[i],
-                       sizeof(float),
-                       1,
-                       fp_fft);
-              }
-              fclose(fp_fft);
-            }
-          }
-        }
-
-        const long validNormaliseElements =
-            (static_cast<long>(freq_bins) / 4096) * 4096;
-
-        if(validNormaliseElements > 0) {
-          const dim3 normaliseGrid(
-              static_cast<unsigned int>(validNormaliseElements / 4096));
-          const dim3 normaliseBlock(1024);
-
-          call_kernel_pulscan_median_normalisation(normaliseGrid,
-                                                   normaliseBlock,
-                                                   stream,
-                                                   m_pulscan_workspace.d_real);
-          call_kernel_pulscan_median_normalisation(normaliseGrid,
-                                                   normaliseBlock,
-                                                   stream,
-                                                   m_pulscan_workspace.d_imag);
-        }
-        else if(!pulscan_warned_normalisation) {
-          LOG(log_level::warning,
-              "Pulscan: skipping median normalisation because frequency bin "
-              "count " +
-                  std::to_string(freq_bins) + " is not a multiple of 4096.");
-          pulscan_warned_normalisation = true;
-        }
-
-        call_kernel_pulscan_magnitude_squared(fftGrid,
-                                              fftBlock,
-                                              stream,
-                                              m_pulscan_workspace.d_real,
-                                              m_pulscan_workspace.d_imag,
-                                              m_pulscan_workspace.d_power,
-                                              static_cast<long>(freq_bins));
-
-        cuda_status = cudaGetLastError();
-        if(cuda_status != cudaSuccess) {
-          LOG(log_level::error,
-              "Pulscan: magnitude kernels failed (" +
-                  std::string(cudaGetErrorString(cuda_status)) + ")");
-          pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-          break;
-        }
-
-        size_t dec2_bins = freq_bins / 2;
-        size_t dec3_bins = freq_bins / 3;
-        size_t dec4_bins = freq_bins / 4;
-        if((dec2_bins > 0 && !m_pulscan_workspace.ensure_decimated_buffer(
-                                 m_pulscan_workspace.d_decimated2,
-                                 m_pulscan_workspace.d_decimated2_capacity,
-                                 dec2_bins)) ||
-           (dec3_bins > 0 && !m_pulscan_workspace.ensure_decimated_buffer(
-                                 m_pulscan_workspace.d_decimated3,
-                                 m_pulscan_workspace.d_decimated3_capacity,
-                                 dec3_bins)) ||
-           (dec4_bins > 0 && !m_pulscan_workspace.ensure_decimated_buffer(
-                                 m_pulscan_workspace.d_decimated4,
-                                 m_pulscan_workspace.d_decimated4_capacity,
-                                 dec4_bins))) {
-          LOG(log_level::error,
-              "Pulscan: failed to allocate decimated power buffers.");
-          pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-          break;
-        }
-
-        const bool run_decimation =
-            (dec2_bins > 0 || dec3_bins > 0 || dec4_bins > 0);
-        if(run_decimation) {
-          const int decimationThreadCount = boxcarThreadCount;
-          const int decimationGrid        = static_cast<int>(
-              (static_cast<long>(dec2_bins) + decimationThreadCount - 1) /
-              decimationThreadCount);
-          if(decimationGrid > 0) {
-            call_kernel_pulscan_decimate_harmonics(
-                dim3(decimationGrid),
-                dim3(decimationThreadCount),
-                stream,
-                m_pulscan_workspace.d_power,
-                m_pulscan_workspace.d_decimated2,
-                m_pulscan_workspace.d_decimated3,
-                m_pulscan_workspace.d_decimated4,
-                static_cast<long>(freq_bins));
-
-            cuda_status = cudaGetLastError();
-            if(cuda_status != cudaSuccess) {
-              LOG(log_level::error,
-                  "Pulscan: decimation kernel failed (" +
-                      std::string(cudaGetErrorString(cuda_status)) + ")");
-              pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-              break;
-            }
-          }
-        }
-
-        struct harmonic_run {
-          int                num_harmonics;
-          float*             device_input;
-          size_t             input_length;
-          pulscan_candidate* device_candidates;
-          size_t             candidate_count;
-          int                grid_size;
-          int                num_sum;
-          size_t             host_offset;
-        };
-
-        std::array<harmonic_run, 4> harmonic_runs{};
-        size_t                      harmonic_run_count = 0;
-
-        auto try_register_harmonic = [&](int                 num_harmonics,
-                                         float*              input,
-                                         size_t              length,
-                                         pulscan_candidate*& buffer,
-                                         size_t&             capacity) {
-          if(pipeline_error != PIPELINE_ERROR_NO_ERROR || length <= 256) {
-            return;
-          }
-          long validThreads = static_cast<long>(length) - 256;
-          if(validThreads <= 0) {
-            return;
-          }
-          int gridSize = static_cast<int>(
-              (validThreads + boxcarThreadCount - 1) / boxcarThreadCount);
-          if(gridSize <= 0) {
-            return;
-          }
-          size_t candidateCount = static_cast<size_t>(gridSize) *
-                                  static_cast<size_t>(numCandidatesPerBlock);
-          if(candidateCount == 0) {
-            return;
-          }
-          bool ensured =
-              (num_harmonics == 1)
-                  ? m_pulscan_workspace.ensure_candidates(candidateCount)
-                  : m_pulscan_workspace.ensure_candidates_harmonic(
-                        buffer, capacity, candidateCount);
-          if(!ensured) {
-            LOG(log_level::error,
-                "Pulscan: failed to allocate candidate buffer for harmonic " +
-                    std::to_string(num_harmonics));
-            pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-            return;
-          }
-
-          cuda_status =
-              cudaMemset(buffer, 0, candidateCount * sizeof(pulscan_candidate));
-          if(cuda_status != cudaSuccess) {
-            LOG(log_level::error,
-                "Pulscan: failed to zero candidate buffer (" +
-                    std::string(cudaGetErrorString(cuda_status)) + ")");
-            pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-            return;
-          }
-
-          harmonic_run& run     = harmonic_runs[harmonic_run_count++];
-          run.num_harmonics     = num_harmonics;
-          run.device_input      = input;
-          run.input_length      = length;
-          run.device_candidates = buffer;
-          run.candidate_count   = candidateCount;
-          run.grid_size         = gridSize;
-          run.num_sum           = (num_harmonics * (num_harmonics + 1)) / 2;
-          run.host_offset       = 0;
-        };
-
-        try_register_harmonic(1,
-                              m_pulscan_workspace.d_power,
-                              freq_bins,
-                              m_pulscan_workspace.d_candidates_h1,
-                              m_pulscan_workspace.d_candidates_h1_capacity);
-        try_register_harmonic(2,
-                              m_pulscan_workspace.d_decimated2,
-                              dec2_bins,
-                              m_pulscan_workspace.d_candidates_h2,
-                              m_pulscan_workspace.d_candidates_h2_capacity);
-        try_register_harmonic(3,
-                              m_pulscan_workspace.d_decimated3,
-                              dec3_bins,
-                              m_pulscan_workspace.d_candidates_h3,
-                              m_pulscan_workspace.d_candidates_h3_capacity);
-        try_register_harmonic(4,
-                              m_pulscan_workspace.d_decimated4,
-                              dec4_bins,
-                              m_pulscan_workspace.d_candidates_h4,
-                              m_pulscan_workspace.d_candidates_h4_capacity);
-
-        if(pipeline_error != PIPELINE_ERROR_NO_ERROR) {
-          break;
-        }
-        if(harmonic_run_count == 0) {
-          continue;
-        }
-
-        for(size_t h = 0; h < harmonic_run_count; ++h) {
-          harmonic_run& run = harmonic_runs[h];
-          call_kernel_pulscan_boxcar_filter(dim3(run.grid_size),
-                                            dim3(boxcarThreadCount),
-                                            stream,
-                                            run.device_input,
-                                            run.device_candidates,
-                                            run.num_harmonics,
-                                            static_cast<long>(run.input_length),
-                                            numCandidatesPerBlock);
-        }
-
-        for(size_t h = 0; h < harmonic_run_count; ++h) {
-          harmonic_run& run      = harmonic_runs[h];
-          const int     logpGrid = static_cast<int>(
-              (static_cast<long>(run.candidate_count) + boxcarThreadCount - 1) /
-              boxcarThreadCount);
-          call_kernel_pulscan_calculate_logp(
-              dim3(logpGrid),
-              dim3(boxcarThreadCount),
-              stream,
-              run.device_candidates,
-              static_cast<long>(run.candidate_count),
-              run.num_sum);
-        }
-
-        cuda_status = cudaDeviceSynchronize();
-        if(cuda_status != cudaSuccess) {
-          LOG(log_level::error,
-              "Pulscan: candidate kernels failed (" +
-                  std::string(cudaGetErrorString(cuda_status)) + ")");
-          pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-          break;
-        }
-
-        size_t total_candidates = 0;
-        for(size_t h = 0; h < harmonic_run_count; ++h) {
-          total_candidates += harmonic_runs[h].candidate_count;
-        }
-        if(total_candidates == 0) {
-          continue;
-        }
-
-        if(!m_pulscan_workspace.ensure_host_candidates(total_candidates)) {
-          LOG(log_level::error,
-              "Pulscan: failed to allocate host candidate buffer for " +
-                  std::to_string(total_candidates) + " entries.");
-          pipeline_error = PIPELINE_ERROR_GENERAL_GPU_ERROR;
-          break;
-        }
-
-        size_t host_offset = 0;
-        for(size_t h = 0; h < harmonic_run_count; ++h) {
-          harmonic_run& run = harmonic_runs[h];
-          run.host_offset   = host_offset;
-          if(run.candidate_count > 0) {
-            cuda_status =
-                cudaMemcpy(m_pulscan_workspace.h_candidate_buffer + host_offset,
-                           run.device_candidates,
-                           run.candidate_count * sizeof(pulscan_candidate),
-                           cudaMemcpyDeviceToHost);
-            if(cuda_status != cudaSuccess) {
-              LOG(log_level::error,
-                  "Pulscan: failed to copy candidates to host (" +
-                      std::string(cudaGetErrorString(cuda_status)) + ")");
-              pipeline_error = PIPELINE_ERROR_COPY_TO_HOST;
-              break;
-            }
-          }
-          host_offset += run.candidate_count;
-        }
-        if(pipeline_error != PIPELINE_ERROR_NO_ERROR) {
-          break;
-        }
-
-        double dm_value = plan_entry.dm_low +
-                          static_cast<double>(plan_entry.dm_offset + dm_idx) *
-                              plan_entry.dm_step;
-        size_t candidates_added = 0;
-        double dt =
-            plan_entry.sampling_time * static_cast<double>(plan_entry.in_bin);
-        double denom = static_cast<double>(fft_length) * dt;
-
-        for(size_t h = 0; h < harmonic_run_count; ++h) {
-          harmonic_run&      run = harmonic_runs[h];
-          pulscan_candidate* host_slice =
-              m_pulscan_workspace.h_candidate_buffer + run.host_offset;
-          for(size_t c = 0; c < run.candidate_count; ++c) {
-            pulscan_candidate candidate = host_slice[c];
-            if(candidate.logp >= logpThreshold || candidate.z == 0 ||
-               candidate.r == 0) {
-              continue;
-            }
-            double frequency_hz =
-                (denom > 0.0) ? static_cast<double>(candidate.r) / denom : 0.0;
-            double period_s = (frequency_hz > 0.0) ? 1.0 / frequency_hz : 0.0;
-            pulscan_host_candidate host_candidate{};
-            host_candidate.dm           = dm_value;
-            host_candidate.frequency_hz = frequency_hz;
-            host_candidate.period_s     = period_s;
-            host_candidate.power        = candidate.power;
-            host_candidate.logp         = candidate.logp;
-            host_candidate.sigma        = pulscan_logp_to_sigma(candidate.logp);
-            host_candidate.r            = candidate.r;
-            host_candidate.z            = candidate.z;
-            host_candidate.numharm      = candidate.numharm;
-            host_candidate.range_index  = plan_entry.range_index;
-            host_candidate.dm_index     = plan_entry.dm_offset + dm_idx;
-            host_candidate.bin_index    = candidate.r;
-            if(!std::isfinite(host_candidate.sigma)) {
-              host_candidate.sigma = 0.0f;
-            }
-            m_pulscan_candidates.push_back(host_candidate);
-            ++candidates_added;
-          }
-        }
-
-        printf("Pulscan extracted %zu candidates for DM %.3f (dt=%f s).\n",
-               candidates_added,
-               dm_value,
-               dt);
-      }
-
-      if(pipeline_error != PIPELINE_ERROR_NO_ERROR) {
-        break;
-      }
-    }
-
-    std::sort(m_pulscan_candidates.begin(),
-              m_pulscan_candidates.end(),
-              [](const pulscan_host_candidate& a,
-                 const pulscan_host_candidate& b) { return a.logp < b.logp; });
-
-    printf("Pulscan accumulated %zu candidates so far.\n",
-           m_pulscan_candidates.size());
-
-    timer.Stop();
-    time_log.adding("Pulscan", "total", timer.Elapsed());
-    time_log.adding("Total", "total", timer.Elapsed());
+    const bool pulscan_return_value =
+        m_pulscan_runner.run(m_periodicity_strategy,
+                             m_output_buffer,
+                             inBin,
+                             inc,
+                             pipeline_error,
+                             time_log);
     pulscan_did_run = true;
-    return (pipeline_error == PIPELINE_ERROR_NO_ERROR);
+    return pulscan_return_value;
   }
 #endif
 
@@ -2411,10 +1456,10 @@ public:
   }
   // ----------------------- PSR -------------------------
 
-#if AA_WITH_PULSCAN
+#if AA_ENABLE_PULSCAN
   const std::vector<pulscan_host_candidate>&
   get_pulscan_candidates() const override {
-    return m_pulscan_candidates;
+    return m_pulscan_runner.candidates();
   }
 
   void Write_to_disk_Pulscan_candidates(const char* filename) override {
@@ -2431,7 +1476,7 @@ public:
     }
 
     fprintf(fp, "sigma,logp,r,z,power,numharm,frequency_hz,dm\n");
-    for(const auto& candidate : m_pulscan_candidates) {
+    for(const auto& candidate : m_pulscan_runner.candidates()) {
       fprintf(fp,
               "%lf,%f,%d,%d,%f,%d,%lf,%lf\n",
               static_cast<double>(candidate.sigma),        // sigma
@@ -2445,6 +1490,68 @@ public:
     }
 
     fclose(fp);
+  }
+
+  void Write_to_disk_Pulscan_gpucand(const char* directory) override {
+    const std::string base_dir =
+        (directory && directory[0] != '\0') ? std::string(directory) : std::string(".");
+    auto join_path = [](const std::string& dir, const std::string& filename) {
+      if(dir.empty() || dir == ".") {
+        return filename;
+      }
+      if(dir.back() == '/') {
+        return dir + filename;
+      }
+      return dir + "/" + filename;
+    };
+    auto format_dm = [](double dm_value) {
+      std::ostringstream stream;
+      stream << std::fixed << std::setprecision(6) << dm_value;
+      std::string value = stream.str();
+      while(!value.empty() && value.back() == '0') {
+        value.pop_back();
+      }
+      if(!value.empty() && value.back() == '.') {
+        value.pop_back();
+      }
+      if(value.empty()) {
+        value = "0";
+      }
+      return value;
+    };
+
+    std::map<std::string, FILE*> outputs;
+    for(const auto& candidate : m_pulscan_runner.candidates()) {
+      const std::string dm_label = format_dm(candidate.dm);
+      FILE*& fp = outputs[dm_label];
+      if(!fp) {
+        const std::string filename =
+            join_path(base_dir, "pulscan_DM" + dm_label + ".gpucand");
+        fp = fopen(filename.c_str(), "w");
+        if(!fp) {
+          LOG(log_level::error,
+              "Pulscan: failed to open gpucand output file " + filename);
+          outputs.erase(dm_label);
+          continue;
+        }
+        fprintf(fp, "sigma,logp,r,z,power,numharm\n");
+      }
+
+      fprintf(fp,
+              "%lf,%f,%d,%d,%f,%d\n",
+              static_cast<double>(candidate.sigma),
+              static_cast<double>(candidate.logp),
+              candidate.r,
+              candidate.z,
+              static_cast<double>(candidate.power),
+              candidate.numharm);
+    }
+
+    for(auto& output : outputs) {
+      if(output.second) {
+        fclose(output.second);
+      }
+    }
   }
 #endif
 
@@ -2498,8 +1605,8 @@ public:
         }
       }
 
-#if AA_WITH_PULSCAN
-      m_pulscan_workspace.release();
+#if AA_ENABLE_PULSCAN
+  m_pulscan_runner.release();
 #endif
 
       memory_cleanup = true;
