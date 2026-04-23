@@ -25,6 +25,7 @@ src/aa_device_load_data.cu
 src/aa_device_peak_find.cu
 src/aa_device_peak_find_kernel.cu
 src/aa_device_periods.cu
+src/aa_device_pulscan.cu
 src/aa_device_power.cu
 src/aa_device_power_kernel.cu
 src/aa_device_rfi.cu

@@ -78,6 +78,7 @@ template<typename inType>
 int corner_turn_SM_wrapper(inType *const d_input, inType *const d_output, const size_t primary_size, const size_t secondary_size) {
     //---------> Task specific
     size_t nBlocks_x, nBlocks_y, Elements_per_block;
+    const size_t max_grid_y = 65535;
     
     Elements_per_block = CT_CORNER_BLOCKS*WARP;
     nBlocks_x = (primary_size + Elements_per_block - 1)/Elements_per_block;
@@ -85,7 +86,6 @@ int corner_turn_SM_wrapper(inType *const d_input, inType *const d_output, const 
     nBlocks_y = (secondary_size + WARP - 1)/WARP;
     
     //---------> CUDA block and CUDA grid parameters
-    dim3 gridSize(nBlocks_x, nBlocks_y, 1);
     dim3 blockSize(CT_NTHREADS, 1, 1);
     
 #ifdef CORNER_TURN_DEBUG
@@ -98,7 +98,21 @@ int corner_turn_SM_wrapper(inType *const d_input, inType *const d_output, const 
     
     cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
     cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeFourByte);
-    call_kernel_corner_turn_SM_kernel(gridSize, blockSize, d_input, d_output, primary_size, secondary_size);
+    for(size_t block_y_offset = 0; block_y_offset < nBlocks_y; block_y_offset += max_grid_y) {
+        const size_t launch_grid_y =
+            ((nBlocks_y - block_y_offset) > max_grid_y)
+                ? max_grid_y
+                : (nBlocks_y - block_y_offset);
+        dim3 gridSize(nBlocks_x, launch_grid_y, 1);
+        call_kernel_corner_turn_SM_kernel(
+            gridSize,
+            blockSize,
+            d_input,
+            d_output,
+            primary_size,
+            secondary_size,
+            block_y_offset);
+    }
     
     return(0);
 }
