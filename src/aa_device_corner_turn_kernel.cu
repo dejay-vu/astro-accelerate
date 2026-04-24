@@ -41,17 +41,17 @@ namespace astroaccelerate {
   }
   
   template<typename inType>
-  __global__ void corner_turn_SM_kernel(inType const* __restrict__ d_input, inType *d_output, size_t primary_size, size_t secondary_size) {
+    __global__ void corner_turn_SM_kernel(inType const* __restrict__ d_input, inType *d_output, size_t primary_size, size_t secondary_size, size_t block_y_offset) {
       __shared__ inType s_input[WARP*(WARP+1)*CT_CORNER_BLOCKS];
       
       for(size_t bx=0; bx<CT_CORNER_BLOCKS; bx++){
-          LoadMatrix(&s_input[WARP*(WARP+1)*bx], d_input, primary_size, secondary_size, CT_CORNER_BLOCKS*blockIdx.x + bx, blockIdx.y);
+        LoadMatrix(&s_input[WARP*(WARP+1)*bx], d_input, primary_size, secondary_size, CT_CORNER_BLOCKS*blockIdx.x + bx, block_y_offset + blockIdx.y);
       }
       
       __syncthreads();
       
       for(size_t bx=0; bx<CT_CORNER_BLOCKS; bx++){
-          WriteMatrix(d_output, &s_input[WARP*(WARP+1)*bx], primary_size, secondary_size, CT_CORNER_BLOCKS*blockIdx.x + bx, blockIdx.y);
+          WriteMatrix(d_output, &s_input[WARP*(WARP+1)*bx], primary_size, secondary_size, CT_CORNER_BLOCKS*blockIdx.x + bx, block_y_offset + blockIdx.y);
       }
   }
   
@@ -116,9 +116,10 @@ namespace astroaccelerate {
       float const *const d_input, 
       float *const d_output, 
       const size_t &primary_size, 
-      const size_t &secondary_size
+      const size_t &secondary_size,
+      const size_t &block_y_offset
   ) {
-    corner_turn_SM_kernel<<<grid_size,block_size>>>(d_input, d_output, primary_size, secondary_size);
+    corner_turn_SM_kernel<<<grid_size,block_size>>>(d_input, d_output, primary_size, secondary_size, block_y_offset);
   }
   
   /** \brief Kernel wrapper function for corner_turn_SM_kernel kernel function. */
@@ -128,9 +129,10 @@ namespace astroaccelerate {
       unsigned short const *const d_input, 
       unsigned short *const d_output, 
       const size_t &primary_size, 
-      const size_t &secondary_size
+      const size_t &secondary_size,
+      const size_t &block_y_offset
   ) {
-    corner_turn_SM_kernel<<<grid_size,block_size>>>(d_input, d_output, primary_size, secondary_size);
+    corner_turn_SM_kernel<<<grid_size,block_size>>>(d_input, d_output, primary_size, secondary_size, block_y_offset);
   }
   
   void call_kernel_swap_content(

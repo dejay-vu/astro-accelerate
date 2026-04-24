@@ -34,6 +34,10 @@ output/
 *.singlepulse
 *.sub*
 *.fft
+*.gpucand
+global_pulscan_candidates.csv
+pulscan_fft_dm*.bin
+pulscan_fft_dumps/
 
 *.txt
 include/aa_version.hpp

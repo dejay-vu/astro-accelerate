@@ -30,6 +30,43 @@ Astro-Accelerate is used for real-time astronomy data processing. Its features i
 * Acceleration Searching
 * Zero DM
 * RFI Mitigation
+* Pulscan accelerated search (FFT-domain candidate generation integrated with periodicity)
+
+Pulscan Integration
+---
+
+The current Pulscan integration is built into Astro-Accelerate and is disabled by default. No separate Pulscan checkout is required. The underlying compile-time switch is `AA_ENABLE_PULSCAN`; each build system exposes it a little differently:
+
+* **CMake**: `cmake -S . -B build -DAA_ENABLE_PULSCAN=ON`
+* **Meson**: `meson setup build -Dwith_pulscan=true` (`with_pulscan=true` maps to `AA_ENABLE_PULSCAN=1`)
+* **Makefile**: `make PULSCAN=1` or `PULSCAN=1 make` (`PULSCAN=1` maps to `AA_ENABLE_PULSCAN=1`)
+
+Pulscan runs as part of the periodicity stage. There is no separate pipeline keyword for it: if Astro-Accelerate is built with Pulscan support and the input configuration enables `periodicity`, the pipeline will run the normal periodicity search and then emit Pulscan candidate products.
+
+Use `pulscan-output-dir /path/to/output` in the input configuration file to choose where Pulscan files are written. If this setting is omitted, Pulscan outputs are written to the current working directory. The alias `pulscan_output_dir` is also accepted.
+
+For debugging and Pulscan port validation, set `AA_PULSCAN_DUMP_FFT=1` before running Astro-Accelerate. This writes per-DM FFT dumps as `.bin` files under `pulscan_fft_dumps/`. If `AA_PULSCAN_DUMP_FFT` is set to a non-empty value other than `1`, that value is used as the dump directory instead. These dumps are not required for normal runs; they are only meant for inspecting the FFT-domain data path.
+
+Example input configuration snippet:
+
+    range 0 150 0.1 1 1
+    sigma_cutoff 6
+    periodicity
+    periodicity_sigma_cutoff 3
+    periodicity_nHarmonics 32
+    pulscan-output-dir ./pulscan_out
+    file /data/example.fil
+
+Example run command:
+
+    ./build/astro-accelerate /path/to/pulscan_input.cfg
+
+Pulscan outputs:
+
+* `global_pulscan_candidates.csv`: one aggregated CSV file for all Pulscan candidates written to the configured output directory. Columns are `sigma,logp,r,z,power,numharm,frequency_hz,dm`.
+* `pulscan_DM<dm>.gpucand`: one file per DM trial written to the same output directory. Columns are `sigma,logp,r,z,power,numharm`.
+
+When `periodicity` is enabled, Astro-Accelerate still writes the standard periodicity outputs (`global_periods.dat` and `global_interbin.dat`) in addition to the Pulscan products.
 
 Python Interface
 ===

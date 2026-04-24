@@ -1,0 +1,6 @@
+option(
+  'with_pulscan',
+  type: 'boolean',
+  value: false,
+  description: 'Enable Pulscan integration'
+)option('with_pulscan', type: 'boolean', value: false, description: 'Enable Pulscan integration')

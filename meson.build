@@ -10,6 +10,12 @@ buildtype = 'debug'
 comp_flags = ['-g', '-std=c++14']
 add_project_arguments(comp_flags, language : ['c', 'cpp', 'cuda'])
 
+if get_option('with_pulscan')
+  add_project_arguments(['-DAA_ENABLE_PULSCAN=1'], language : ['c', 'cpp', 'cuda'])
+else
+  add_project_arguments(['-DAA_ENABLE_PULSCAN=0'], language : ['c', 'cpp', 'cuda'])
+endif
+
 
 # Load list of files to compile into shared object
 # Note: Meson does not allow * wildcard (deliberately)

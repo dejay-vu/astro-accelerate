@@ -50,6 +50,7 @@ namespace astroaccelerate {
 		int selected_card_id;           /**< Selected card id on this machine. */
 		int dered;                      /** Enable deredning. */
 		bool rfi;                       /**< Enable (true) or disable (false) host RFI reduction of the input data. */
+		std::string pulscan_output_dir; /**< Optional output directory for Pulscan products. */
 		std::vector<aa_pipeline::debug> user_debug; /**< std::vector of debug flags. */
 		
 		void init(){
@@ -74,6 +75,7 @@ namespace astroaccelerate {
 			selected_card_id = 0;
 			dered = 0;
 			rfi = false;
+			pulscan_output_dir.clear();
 			user_debug = std::vector<aa_pipeline::debug>();
 		}
 		
@@ -213,8 +215,10 @@ namespace astroaccelerate {
 						flg.multi_file = 1;
 					if (strcmp(string, "analysis_debug") == 0)
 						flg.user_debug.push_back(aa_pipeline::debug::analysis);
-					if (strcmp(string, "failsafe") == 0)
+					if (strcmp(string, "failsafe") == 0) {
 						flg.failsafe = 1;
+						m_pipeline_options.insert(aa_pipeline::component_option::failsafe);
+					}
 					if (strcmp(string, "max_boxcar_width_in_sec") == 0) {
 						if (fscanf(fp_in, "%f", &flg.max_boxcar_width_in_sec) == 0)	{
 							fprintf(stderr, "failed to read input\n");
@@ -309,6 +313,21 @@ namespace astroaccelerate {
 							//Close it again for later re-opening
 							fpath = expanded_string.we_wordv[0];
 							fclose(fp);
+						}
+						wordfree(&expanded_string);
+					}
+					if (strcmp(string, "pulscan-output-dir") == 0 ||
+						strcmp(string, "pulscan_output_dir") == 0) {
+						wordexp_t expanded_string;
+
+						if (fscanf(fp_in, "%s", string) == 0)
+						{
+							fprintf(stderr, "failed to read input\n");
+							return false;
+						}
+						wordexp(string, &expanded_string, 0);
+						if(expanded_string.we_wordc > 0) {
+							flg.pulscan_output_dir = expanded_string.we_wordv[0];
 						}
 						wordfree(&expanded_string);
 					}
