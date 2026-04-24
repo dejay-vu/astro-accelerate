@@ -90,7 +90,7 @@ int main() {
   while(runner.run(status_code)) {
     if(status_code == aa_pipeline_runner::status::error) {
       std::cout << "Pipeline reported error status" << std::endl;
-      break;
+      return 1;
     }
   }
 

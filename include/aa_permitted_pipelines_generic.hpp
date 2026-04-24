@@ -1146,7 +1146,10 @@ private:
       return false;
     aa_gpu_timer timer;
     timer.Start();
+
+#if AA_ENABLE_PULSCAN
     m_pulscan_runner.clear();
+#endif
 
     GPU_periodicity(m_periodicity_strategy,
                     m_output_buffer,
