@@ -147,3 +147,13 @@ FILElog::stream() = pFile;
 All subsequent logs will then only be written to disk.
 
 All logs will print the system date and time, the log level, and the log message.
+
+## Pulscan (experimental)
+Pulscan provides an FFT-domain candidate search that complements the existing periodicity and FDAS components. The feature is disabled by default. Enable it at build time using one of the following options:
+
+- CMake: configure with `-DAA_ENABLE_PULSCAN=ON`
+- Meson: configure with `-Dwith_pulscan=true`
+- Makefile: run `make PULSCAN=1` or set `PULSCAN=1` in the environment
+
+Once enabled, the generic pipeline will generate Pulscan candidates after the periodicity stage. You can retrieve them from the pipeline runner via `get_pulscan_candidates()`. The interface is experimental and may change in future releases.
+

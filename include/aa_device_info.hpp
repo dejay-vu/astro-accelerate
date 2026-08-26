@@ -175,8 +175,23 @@ private:
 		selected_card_info.driver_version = driverVersion;
 		selected_card_info.runtime_version = runtimeVersion;
 		selected_card_info.global_memory = deviceProp.totalGlobalMem;
+		#if defined(CUDART_VERSION) && CUDART_VERSION < 13000
 		selected_card_info.clock_rate = deviceProp.clockRate;
 		selected_card_info.memory_clock_rate = deviceProp.memoryClockRate;
+		#else
+		int clock_rate_attr = 0;
+		if (cudaDeviceGetAttribute(&clock_rate_attr, cudaDevAttrClockRate, selected_device_id) == cudaSuccess) {
+			selected_card_info.clock_rate = static_cast<float>(clock_rate_attr);
+		} else {
+			selected_card_info.clock_rate = 0.0f;
+		}
+		int memory_clock_rate_attr = 0;
+		if (cudaDeviceGetAttribute(&memory_clock_rate_attr, cudaDevAttrMemoryClockRate, selected_device_id) == cudaSuccess) {
+			selected_card_info.memory_clock_rate = static_cast<float>(memory_clock_rate_attr);
+		} else {
+			selected_card_info.memory_clock_rate = 0.0f;
+		}
+		#endif
 		selected_card_info.memory_bus_width = deviceProp.memoryBusWidth;
 		selected_card_info.l2_cache_size = deviceProp.l2CacheSize;
 		selected_card_info.compute_capability_major = deviceProp.major;

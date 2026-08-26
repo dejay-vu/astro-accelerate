@@ -49,6 +49,7 @@ namespace astroaccelerate {
 		old_rfi,                //< DDTR - performs rfi mitigation
 		copy_ddtr_data_to_host, //< DDTR - switch to copy ddtr data to host
 		output_dmt,             //< DDTR - Switches on output of ddtr to disk.
+		failsafe,               //< DDTR - forces fallback dedispersion kernel
 		msd_baseline_noise,     //< MSD
 		dered,                  //< PSR--FDAS--JERK deredning of the DM-trial
 		candidate_algorithm,    //< CND - Enables/disables the candidate_algorithm
@@ -117,6 +118,9 @@ namespace astroaccelerate {
 				break;
 			case aa_pipeline::component_option::output_dmt:
 				return "DDTR will output de-dispersed data to disc";
+				break;
+			case aa_pipeline::component_option::failsafe:
+				return "DDTR will use fallback dedispersion kernel";
 				break;
 			case aa_pipeline::component_option::msd_baseline_noise:
 				return "MSD will perform outlier rejection";

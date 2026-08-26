@@ -8,6 +8,10 @@ namespace astroaccelerate {
    * \details Modifying this file requires a recompilation of the codebase.
    */
 
+#ifndef AA_ENABLE_PULSCAN
+#define AA_ENABLE_PULSCAN 0
+#endif
+
   //P100 8,14,12,40
 #define ACCMAX 350
 #define ACCSTEP 11

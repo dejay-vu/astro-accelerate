@@ -16,7 +16,8 @@ namespace astroaccelerate {
       unsigned short const *const d_input, 
       unsigned short *const d_output, 
       const size_t &primary_size, 
-      const size_t &secondary_size
+      const size_t &secondary_size,
+      const size_t &block_y_offset
   );
 
   /** \brief Kernel wrapper function for corner_turn_SM_kernel kernel function. */
@@ -26,7 +27,8 @@ namespace astroaccelerate {
       float const *const d_input, 
       float *const d_output, 
       const size_t &primary_size, 
-      const size_t &secondary_size
+      const size_t &secondary_size,
+      const size_t &block_y_offset
   );
   
   void call_kernel_swap_content(
